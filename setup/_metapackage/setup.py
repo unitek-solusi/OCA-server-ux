@@ -10,10 +10,13 @@ setuptools.setup(
     install_requires=[
         'odoo11-addon-barcode_action',
         'odoo11-addon-base_export_manager',
+        'odoo11-addon-base_import_security_group',
         'odoo11-addon-base_optional_quick_create',
         'odoo11-addon-base_technical_features',
         'odoo11-addon-base_tier_validation',
+        'odoo11-addon-base_tier_validation_formula',
         'odoo11-addon-date_range',
+        'odoo11-addon-document_quick_access',
         'odoo11-addon-easy_switch_user',
         'odoo11-addon-mass_editing',
         'odoo11-addon-sequence_check_digit',

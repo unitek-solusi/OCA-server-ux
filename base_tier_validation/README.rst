@@ -49,11 +49,6 @@ To configure this module, you need to:
 #. Create as many tiers as you want for any model having tier validation
    functionality.
 
-Known issues / Roadmap
-======================
-
-* In odoo v11 it would be interesting to try to take advantage of ``mail.activity.mixin``.
-
 Bug Tracker
 ===========
 
@@ -76,6 +71,7 @@ Contributors
 ~~~~~~~~~~~~
 
 * Lois Rilo <lois.rilo@eficent.com>
+* Adrià Gil Sorribes <adria.gil@eficent.com>
 
 Maintainers
 ~~~~~~~~~~~

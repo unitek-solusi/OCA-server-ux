@@ -2,8 +2,8 @@
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 
 from odoo import api, fields, models, _
-from odoo.exceptions import ValidationError, UserError
-from odoo.tools.safe_eval import safe_eval
+from odoo.exceptions import ValidationError
+from ast import literal_eval
 
 
 class TierValidation(models.AbstractModel):
@@ -21,6 +21,10 @@ class TierValidation(models.AbstractModel):
         string='Validations',
         domain=lambda self: [('model', '=', self._name)],
         auto_join=True,
+    )
+    review_ids_dropdown = fields.One2many(
+        related='review_ids',
+        help="Field needed to display the dropdown menu correctly"
     )
     validated = fields.Boolean(
         compute="_compute_validated_rejected",
@@ -87,18 +91,16 @@ class TierValidation(models.AbstractModel):
         for rec in self:
             tiers = self.env[
                 'tier.definition'].search([('model', '=', self._name)])
-            valid_tiers = any([self.evaluate_tier(tier) for tier in tiers])
+            valid_tiers = any([rec.evaluate_tier(tier) for tier in tiers])
             rec.need_validation = not rec.review_ids and valid_tiers and \
                 getattr(rec, self._state_field) in self._state_from
 
     @api.multi
     def evaluate_tier(self, tier):
-        try:
-            res = safe_eval(tier.python_code, globals_dict={'rec': self})
-        except Exception as error:
-            raise UserError(_(
-                "Error evaluating tier validation conditions.\n %s") % error)
-        return res
+        domain = []
+        if tier.definition_domain:
+            domain = literal_eval(tier.definition_domain)
+        return self.search([('id', '=', self.id)] + domain)
 
     @api.model
     def _get_under_validation_exceptions(self):
@@ -146,17 +148,32 @@ class TierValidation(models.AbstractModel):
         tier_reviews = tiers or self.review_ids
         user_reviews = tier_reviews.filtered(
             lambda r: r.status in ('pending', 'rejected') and
-            (r.reviewer_id == self.env.user or
-             r.reviewer_group_id in self.env.user.groups_id))
+            (self.env.user in r.reviewer_ids))
         user_reviews.write({
             'status': 'approved',
             'done_by': self.env.user.id,
+            'reviewed_date': fields.Datetime.now(),
         })
+        for review in user_reviews:
+            rec = self.env[review.model].browse(review.res_id)
+            rec._notify_accepted_reviews()
+
+    def _notify_accepted_reviews(self):
+        if hasattr(self, 'message_post'):
+            # Notify state change
+            getattr(self, 'message_post')(
+                subtype='mt_comment',
+                body=self._notify_accepted_reviews_body()
+            )
+
+    def _notify_accepted_reviews_body(self):
+        return _('A review was accepted')
 
     @api.multi
     def validate_tier(self):
         for rec in self:
             rec._validate_tier()
+            rec._update_counter()
 
     @api.multi
     def reject_tier(self):
@@ -168,7 +185,21 @@ class TierValidation(models.AbstractModel):
             user_reviews.write({
                 'status': 'rejected',
                 'done_by': self.env.user.id,
+                'reviewed_date': fields.Datetime.now(),
             })
+            rec._notify_rejected_review()
+            rec._update_counter()
+
+    def _notify_rejected_review_body(self):
+        return _('A review was rejected by %s.') % (self.env.user.name)
+
+    def _notify_rejected_review(self):
+        if hasattr(self, 'message_post'):
+            # Notify state change
+            getattr(self, 'message_post')(
+                subtype='mt_comment',
+                body=self._notify_rejected_review_body()
+            )
 
     @api.multi
     def request_validation(self):
@@ -190,7 +221,7 @@ class TierValidation(models.AbstractModel):
                                 'sequence': sequence,
                                 'requested_by': self.env.uid,
                             })
-                    # TODO: notify? post some msg in chatter?
+                    self._update_counter()
         return created_trs
 
     @api.multi
@@ -198,3 +229,10 @@ class TierValidation(models.AbstractModel):
         for rec in self:
             if getattr(rec, self._state_field) in self._state_from:
                 rec.mapped('review_ids').unlink()
+                self._update_counter()
+
+    def _update_counter(self):
+        notifications = []
+        channel = 'base.tier.validation'
+        notifications.append([channel, {}])
+        self.env['bus.bus'].sendmany(notifications)
